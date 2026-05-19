@@ -1,69 +1,44 @@
-# 🐆 Multi-Gait Controller — Teaching a Robot 3 Ways to Move
+# 🐆 Multi-Gait Controller — Three Locomotion Personalities, One Brain
 
-![Multi-Gait Demo](results/demo.gif)
+> One neural network. Three ways to move. Switched on command.
 
----
-
-## What is this?
-
-Imagine teaching a dog three different commands:
-
-- 🐢 **"Easy"** → walk slowly and carefully
-- 🐆 **"Go!"** → run as fast as possible  
-- 🌿 **"Conserve"** → move efficiently, don't waste energy
-
-That's exactly what this project does — except with a robot, and instead
-of voice commands, we use numbers.
-
-One single robot brain learns all three behaviors at the same time.
+![Demo](results/demo.gif)
 
 ---
 
-## Why is this hard?
+## The Idea
 
-Most robot learning projects teach a robot **one thing only** — just walk forward.
+Imagine teaching a dog three commands:
 
-The challenge here is teaching the **same robot brain** to behave completely
-differently depending on what you ask it to do.
+| Command | Behavior |
+|---------|----------|
+| 🟣 "Easy" | Walk slowly and carefully |
+| 🟡 "Go!" | Run as fast as possible |
+| 🟢 "Conserve" | Move efficiently, save energy |
 
-It's like training one person to be both a ballet dancer AND a sprinter.
-The body is the same. The movement style is completely different.
+This project does exactly that — with a robot instead of a dog, and numbers instead of voice commands. **One neural network learns all three behaviors simultaneously.**
 
 ---
 
-## How does the robot learn?
+## The Three Gaits
 
-### The reward system (points!)
+| | Mode | Name | What it does | Reward design |
+|-|------|------|--------------|---------------|
+| 🟣 | `0` | **Prowl** | Slow, controlled, stable | Target speed ~1.0 m/s · heavy smoothness bonus |
+| 🟡 | `1` | **Sprint** | Maximum forward velocity | 4× speed reward · minimal energy penalty |
+| 🟢 | `2` | **Trot** | Efficient, sustainable pace | Forward motion · heavy energy cost penalty |
 
-The robot learns through trial and error — exactly like a video game score:
+---
+
+## How the Robot Knows Which Mode It's In
+
+Every frame, the robot gets a list of numbers about its body:
 
 ```
-✅ Do what I want   →  get points
-❌ Do something bad →  lose points
+Standard obs = [joint_positions, joint_velocities, body_orientation, ...]
 ```
 
-But here's the twist — **the points change depending on the mode:**
-
-| Mode | What gets rewarded | What gets penalised |
-|------|--------------------|---------------------|
-| 🟣 Prowl | Moving at a calm steady pace | Going too fast or jerky |
-| 🟡 Sprint | Moving as FAST as possible | Almost nothing — just go! |
-| 🟢 Trot | Moving forward smoothly | Using too much energy |
-
-The robot tries millions of times and slowly figures out:
-> *"Oh! When I'm in Sprint mode, going faster gets me more points.  
-> When I'm in Trot mode, smooth gentle movements score better."*
-
----
-
-## How does the robot know which mode it's in?
-
-The robot receives a list of numbers every frame describing its body:
-- Where are my joints? 
-- How fast am I moving?
-- Am I tilting sideways?
-
-We add **3 extra numbers at the end** that tell it the current mode:
+We add **3 extra numbers** at the end — a mode signal:
 
 ```
 Prowl mode  →  [...body info...,  1, 0, 0]
@@ -71,124 +46,173 @@ Sprint mode →  [...body info...,  0, 1, 0]
 Trot mode   →  [...body info...,  0, 0, 1]
 ```
 
-Every episode (every "life") the robot gets randomly assigned a mode.
-Over millions of tries, it learns to read those 3 numbers and
-move accordingly.
+The robot learns: *"when I see `[0,1,0]` — go fast. When I see `[1,0,0]` — be smooth."*
 
 ---
 
-## The robot — HalfCheetah
+## How the Points Change Per Mode
 
-The HalfCheetah is a 2D cat-like robot with:
-- 6 joints (2 hips, 2 knees, 2 feet)
-- No head, no arms — just a body and legs
-- Lives in a physics simulation (MuJoCo)
+```python
+if mode == 0:   # PROWL — calm and controlled
+    reward = 1.0 * forward_vel          # gentle forward motion
+           - 1.5 * abs(x_vel - 1.0)    # stay near 1.0 m/s
+           + 3.0 * ctrl_cost            # smooth movements rewarded
 
-It can't fall over sideways (it's 2D) so it can focus entirely
-on learning forward locomotion.
+elif mode == 1:  # SPRINT — maximum speed
+    reward = 4.0 * forward_vel          # push velocity to max
+           + 0.5 * ctrl_cost            # light energy penalty
 
----
-
-## What actually happens during training?
-
-```
-Step 1:  Robot spawns  →  randomly assigned a mode
-Step 2:  Robot tries to move  →  gets reward based on that mode
-Step 3:  Robot falls or finishes  →  episode ends
-Step 4:  Robot adjusts its "brain" slightly based on what worked
-Step 5:  Repeat 3,000,000 times
+elif mode == 2:  # TROT — energy efficient
+    reward = 2.0 * forward_vel          # move forward
+           + 5.0 * ctrl_cost            # heavy energy penalty
 ```
 
-After 3 million attempts (~8 minutes on a laptop!) the robot has
-figured out how to move differently for each mode.
+---
+
+## What Happens During Training
+
+```
+Step 1  → Robot spawns, gets randomly assigned a mode
+Step 2  → Robot tries to move, gets reward based on that mode
+Step 3  → Episode ends (robot falls or time runs out)
+Step 4  → Brain updates slightly based on what worked
+Step 5  → Repeat 3,000,000 times
+```
+
+After **3 million attempts in ~8 minutes**, the robot has learned all three personalities.
 
 ---
 
-## What the numbers mean
+## Results
 
-| What we measured | Result | What it means |
-|-----------------|--------|---------------|
-| Training attempts | 3,000,000 | How many times the robot tried |
-| Training time | ~8 minutes | How long it took on a Mac |
-| Parallel robots | 4 | 4 robots training at once |
-| Behaviors learned | 3 | Prowl, Sprint, Trot |
-
----
-
-## Why does this matter in real robotics?
-
-Real robots like **Tesla's Optimus** need to move differently
-depending on their situation:
-
-| Situation | Best behavior |
-|-----------|--------------|
-| Walking near a human | 🟣 Slow and careful |
-| Moving across an empty warehouse | 🟡 Fast |
-| Working a long 8-hour shift | 🟢 Energy efficient |
-
-A robot that can only do one of these isn't very useful in the real world.
-This project is a small step toward robots that can adapt how they move
-based on context — just like humans do naturally.
+| Metric | Value |
+|--------|-------|
+| Training steps | 3,000,000 |
+| Training time | ~8 min (Apple M-series) |
+| Parallel environments | 4 |
+| Steps per second | ~6,000 |
+| Distinct gaits learned | 3 |
 
 ---
 
-## Run it yourself
+## Why This Matters in Real Robotics
+
+Real robots like **Tesla Optimus** need to move differently based on context:
+
+| Situation | Best gait |
+|-----------|-----------|
+| 🏭 Near humans on a factory floor | 🟣 Prowl — slow and safe |
+| 🏃 Moving across open warehouse space | 🟡 Sprint — cover ground fast |
+| 🔋 Long 8-hour work shift | 🟢 Trot — conserve battery |
+
+A robot that can only do one of these isn't useful in the real world. Context-aware locomotion is a core challenge in humanoid robotics — this project is a direct step toward it.
+
+---
+
+## The Robot — HalfCheetah
+
+```
+        ___
+       /   \     ← body
+      /     \
+  ===|       |===   ← 2 hip joints
+     |       |
+    /|       |\
+   / |       | \
+  /  |_______|  \
+ ↑               ↑
+knee joints    knee joints
+     ↓               ↓
+   feet           feet
+```
+
+- 6 actuated joints (2 hips, 2 knees, 2 feet)
+- 2D physics (can't fall sideways)
+- Lives in MuJoCo simulation
+
+---
+
+## Architecture
+
+```
+┌──────────────────────────────────────┐
+│          Observation (20-dim)        │
+│  joint_pos + vel + body_state        │
+│  + [1, 0, 0] / [0, 1, 0] / [0, 0, 1]│  ← gait mode
+└────────────────┬─────────────────────┘
+                 │
+        ┌────────▼────────┐
+        │   PPO Policy    │
+        │  MLP [256,256]  │
+        │  learns all 3   │
+        │  modes at once  │
+        └────────┬────────┘
+                 │
+        ┌────────▼────────┐
+        │  6 joint torques│
+        │  (different per │
+        │   active mode)  │
+        └─────────────────┘
+```
+
+---
+
+## Run It Yourself
 
 ```bash
-# 1. Setup Python environment
+# 1. Setup
 conda create -n rl_humanoid python=3.10
 conda activate rl_humanoid
 pip install gymnasium mujoco stable-baselines3 tensorboard imageio
 
-# 2. Train the robot (takes ~8 minutes)
+# 2. Train (~8 minutes)
 python train_multigait.py
 
-# 3. Watch it learn live in your browser
+# 3. Watch training live
 tensorboard --logdir ./logs/
-# Open http://localhost:6006
+# → open http://localhost:6006
+# → you'll see 3 separate reward curves, one per gait
 
-# 4. Record a video of all 3 gaits
+# 4. Record demo video
 python demo_multigait.py
 ```
 
 ---
 
-## What's inside this repo
+## Files
 
 ```
 📁 multi-gait-controller/
-├── multi_gait_env.py      ← The custom environment (reward switching logic)
+├── multi_gait_env.py      ← Custom environment (reward switching logic)
 ├── train_multigait.py     ← Training script
-├── demo_multigait.py      ← Records the demo video
+├── demo_multigait.py      ← Records demo video of all 3 gaits
 ├── results/
-│   └── demo.gif           ← The robot doing all 3 gaits
+│   └── demo.gif           ← All 3 gaits back to back
 └── videos/
     └── multigait_demo.mp4 ← Full quality video
 ```
 
 ---
 
-## What's next
+## Roadmap
 
-- [ ] Let user switch modes with keyboard in real time
-- [ ] Add domain randomisation (random floor friction, robot weight)
-- [ ] Train on a humanoid robot (2 legs instead of 4)
-- [ ] Port to NVIDIA Isaac Lab for faster GPU training
-- [ ] Compare PPO vs SAC — which learns gaits better?
-
----
-
-## The big picture
-
-This project sits at the intersection of two big ideas:
-
-**Reinforcement Learning** — learning by trial, error, and rewards  
-**Multi-task Learning** — one brain, many behaviors
-
-Both are fundamental to building robots that can handle the
-messy, unpredictable real world.
+- [x] Custom MultiGait environment wrapper
+- [x] 3-mode reward function switching
+- [x] Single PPO policy learning all 3 gaits simultaneously
+- [x] Per-mode TensorBoard evaluation curves
+- [ ] Real-time keyboard mode switching mid-episode
+- [ ] Domain randomisation — random floor friction + robot mass
+- [ ] Port to NVIDIA Isaac Lab for GPU-parallel training
+- [ ] Extend to Humanoid-v5 — 3 humanoid gaits
+- [ ] PPO vs SAC comparison — which learns gaits better?
 
 ---
 
-*Built from scratch on a MacBook — no GPU required.*  
-*Part of an ongoing robotics portfolio. More projects coming.*
+## Stack
+
+`Python 3.10` · `MuJoCo 3.x` · `Gymnasium` · `Stable-Baselines3 (PPO)` · `TensorBoard`
+
+---
+
+*Built on a MacBook — no GPU required.*
+*Part of an ongoing robotics portfolio targeting humanoid locomotion research.*
